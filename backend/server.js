@@ -2,6 +2,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const app = express();
 const PORT = 3005;
 
