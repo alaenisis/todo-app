@@ -1,45 +1,128 @@
 const express = require('express');
-
+const jwt = require('jsonwebtoken');
 const router = express.Router();
+let task = require('../model/todo');
+const config = require('../config');
+const Todo = require('../model/todo');
+const user = require('../model/user');
+const MY_SECRET = config.MY_SECRET;
+const mongoose = require('mongoose');
 
-let todos = require('../modules/task');
 
-router.get('/todos', (req, res) => {
-    res.json(todos);
-});
+const validate= (token)=>{
+    try{
+        jwt.verify(token, MY_SECRET);
+        return true;
+    }catch(err){
+        return false;
+    }
+};
 
-router.post('/todos', (req, res) => {
-    const newTodo = { 
-        id: todos.length > 0 ? Math.max(...todos.map(t => t.id)) + 1 : 1, 
-        task: req.body.task, 
-        completed: false 
-    };
+router.get('/todos', async (req, res) => {
+    const decodedUser = jwt.decode(req.headers.token);
+    const headerToken = req.headers.token;
 
-    const exists = todos.some(todo => todo.task === newTodo.task);
+    if (validate(req.headers.token)) {
+        try {
+            let tasks;
 
-    if (exists) {
-        res.status(400).send('Task already exists');
+            const docs = await Todo.find().populate({
+                path: 'user',
+                select: 'name email' // select all fields of the User document
+            }).select('task completed') // select all fields of the Root document
+
+            tasks = docs;
+
+            res.json(tasks);
+        } catch (err) {
+            res.status(500).send({ message: 'Error retrieving tasks', error: err });
+        }
     } else {
-        todos.push(newTodo);
-        res.status(201).json(newTodo);
+        res.status(401).send('Unauthorized');
     }
 });
 
-router.put('/todos/:id', (req, res) => {
-    const todo = todos.find(t => t.id === parseInt(req.params.id));
-    if (!todo) return res.status(404).send('Todo not found');
+router.post('/todos', async(req, res) => {
+    if(validate(req.headers.token)){
 
-    todo.completed = true;
-    res.json(todo);
+        const decodedUser = jwt.decode(req.headers.token);
+        const {task} = req.body;
+
+        if (!task) {
+            return res.status(400).json({ message: 'Task is required' });
+        }
+
+        const existingTask = await Todo.findOne({ 
+            task, 
+            user: decodedUser.id
+        });
+
+        if (existingTask) {
+            return res.status(400).json({ message: 'Task already exists' });
+        }
+
+        const newTodo = new Todo({task, user: decodedUser.id});
+
+        try{
+            const savedTask = await newTodo.save();
+            res.json(savedTask);
+        }catch(err){
+            res.status(500).send({ message: 'Error saving task', error: err });
+        }
+
+    }else{
+        res.status(401).send('Unauthorized');
+    }
 });
 
-router.delete('/todos/:id', (req, res) => {
-    const initialLength = todos.length;
-    todos = todos.filter(t => t.id !== parseInt(req.params.id));
-    if (todos.length === initialLength) {
-        return res.status(404).send('Todo not found');
+router.put('/todos/:id', async(req, res) => {
+    if(validate(req.headers.token)){
+        const decodedUser = jwt.decode(req.headers.token);
+        const ObjectId = new mongoose.Types.ObjectId(req.params.id);
+        try {
+            const todo = await Todo.findOneAndUpdate(
+                { _id: ObjectId , user: decodedUser.id },
+                { completed: true },
+                { new: true }
+            );
+    
+            if (!todo) {
+                return res.status(404).json({ message: 'Todo not found' });
+            }
+    
+            res.json(todo);
+        } catch (err) {
+            res.status(500).json({ message: 'Server error', error: err.message });
+        }
+
+    }else{
+        res.status(401).send('Unauthorized');
     }
-    res.send('Todo deleted');
+});
+
+router.delete('/todos/:id', async(req, res) => {
+    if(validate(req.headers.token)){
+
+        const ObjectId = new mongoose.Types.ObjectId(req.params.id);
+        const decodedUser = jwt.decode(req.headers.token);
+        try {
+            const todo = await Todo.findOneAndDelete({ 
+                _id: ObjectId, 
+                user: decodedUser.id 
+            });
+    
+            if (!todo) {
+                return res.status(404).json({ message: 'Todo not found' });
+            }
+    
+            res.json({ message: 'Todo deleted successfully' });
+        } catch (err) {
+            res.status(500).json({ message: 'Server error', error: err.message });
+        }
+    }else{
+        res.status(401).send('Unauthorized');
+    }
+
 });
 
 module.exports = router;

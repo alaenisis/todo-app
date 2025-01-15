@@ -3,55 +3,106 @@ const config = require('../config');
 const express = require('express');
 const router=express.Router();
 const MY_SECRET = config.MY_SECRET;
-let users = require('../modules/users');
+const User = require('../model/user');
+const bcrypt = require('bcryptjs');
 
 
 const generateToken = (user) => {
-    return jwt.sign( user, MY_SECRET, { expiresIn: '1h' });
-};
+    const tokenPayload = {
+        id: user.id,
+        name: user.name,
+        email: user.email
+    };
+    return jwt.sign( tokenPayload, MY_SECRET, { expiresIn: '1h' });
+}; 
 
-router.get('/users', (req, res) => {
-    res.json(users);
+router.get('/users', async(req, res) => {
+    try {
+        const usersdb = await User.find();
+        res.json(usersdb);
+    }catch (error) {
+        res.send("error" + error)
+    }
 });
 
-router.get('/users/:id', (req, res) => {
-    const user = users.find(u => u.id === parseInt(req.params.id));
-    if (!user) return res.status(404).send('User not found');
-    res.json(user);
+router.get('/users/:id', async(req, res) => {
+    try{
+        const userdb = await User.findById(req.params.id);
+        res.json(userdb);
+    }catch(err){
+        res.send("error" + err)
+    }
 });
 
-router.post('/register', (req, res) => {
+router.post('/register', async(req, res) => {
 
+    try{
+        const {name, email } = req.body;
 
-    const { name, email, password } = req.body;
-    const user = { id: users.length + 1, name, email, password };
-    users.push(user);
-    res.json(user);
-});
+        const existsUser = await User.findOne({ email });
+        if (existsUser) {
+            return res.status(400).send('User already exists');
+        }  
 
-router.post('/login', (req, res) => {
-    const { email, password } = req.body;
-    const user = users.find(u => u.email === email && u.password === password);
-    if (user) {
+        const encoder = await bcrypt.genSalt(10);
+        const password = await bcrypt.hash(req.body.password, encoder);
 
-        const { id, name, email } = user;
-
-        res.json({
-        success: true,
-        user: {
-            id,
+        const user = new User({
             name,
             email,
-            token: generateToken(user)
-        },
-       
-    });
+            password
+        });
 
-    ;
+        const savedUser = await user.save();
+        const token = generateToken(user);
+        res.json({
+            success: true,
+            user: {
+                id: savedUser.id,
+                name: savedUser.name,
+                email: savedUser.email,
+                token: token
+            }
+        });
 
-    } else {
-        res.status(401).send('Invalid email or password');
-    }   
+    }catch(err){
+        res.send("error" + err)
+    }
+});
+
+router.post('/login', async(req, res) => {
+   
+    try{
+
+        const {email, password} = req.body;
+
+        const user = await User.findOne({ email });
+ 
+        if (!user) {
+            return res.status(401).send('invalid email');
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+
+        if (!isMatch) {
+            return res.status(401).send('invalid password');
+        }
+
+        const token = generateToken(user);
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                token: token
+            }
+        }); 
+        
+
+   }catch(err){
+       res.send("error" + err)
+   } 
 });
 
 module.exports=router;
