@@ -19,23 +19,13 @@ const validate= (token)=>{
 };
 
 router.get('/todos', async (req, res) => {
-    const decodedUser = jwt.decode(req.headers.token);
-    const headerToken = req.headers.token;
-
     if (validate(req.headers.token)) {
+        const decodedUser = jwt.decode(req.headers.token);
         try {
-            let tasks;
-
-            const docs = await Todo.find().populate({
-                path: 'user',
-                select: 'name email' // select all fields of the User document
-            }).select('task completed') // select all fields of the Root document
-
-            tasks = docs;
-
+            const tasks = await Todo.find({ user: decodedUser.id });
             res.json(tasks);
         } catch (err) {
-            res.status(500).send({ message: 'Error retrieving tasks', error: err });
+            res.status(500).json({ message: 'Error retrieving tasks', error: err.message });
         }
     } else {
         res.status(401).send('Unauthorized');
